@@ -487,9 +487,15 @@ class Debiaser(ABC):
             cm_future,
             input_core_dims=[["time"], ["time"], ["time"]],
             output_core_dims=[["time"]],
+            exclude_dims={"time"},
             vectorize=True,
+            join="override",
             dask="parallelized",
             output_dtypes=[float],
+            dask_gufunc_kwargs={
+                "output_sizes": {"time": cm_future.sizes["time"]},
+                "allow_rechunk": True,
+            },
             kwargs=kwargs,
         )
         # apply_ufunc moves the output core dim to the last position; restore original order
