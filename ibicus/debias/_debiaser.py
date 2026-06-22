@@ -464,6 +464,37 @@ class Debiaser(ABC):
 
         return output
 
+    def _apply_xarray(self, obs, cm_hist, cm_future, **kwargs):
+        """
+        Applies the debiaser to xarray DataArrays, supporting dask-backed arrays.
+
+        Uses ``xr.apply_ufunc`` with ``vectorize=True`` and ``dask="parallelized"``
+        so that :meth:`apply_location` is called once per spatial location, lazily
+        when inputs are dask-backed.
+        """
+        import xarray as xr
+
+        # Extract time coordinates for running-window debiasers, if present
+        if "time" in obs.dims:
+            kwargs.setdefault("time_obs", obs.time.values)
+            kwargs.setdefault("time_cm_hist", cm_hist.time.values)
+            kwargs.setdefault("time_cm_future", cm_future.time.values)
+
+        result = xr.apply_ufunc(
+            self.apply_location,
+            obs,
+            cm_hist,
+            cm_future,
+            input_core_dims=[["time"], ["time"], ["time"]],
+            output_core_dims=[["time"]],
+            vectorize=True,
+            dask="parallelized",
+            output_dtypes=[float],
+            kwargs=kwargs,
+        )
+        # apply_ufunc moves the output core dim to the last position; restore original order
+        return result.transpose(*obs.dims)
+
     # ----- Apply functions ----- #
 
     @abstractmethod
@@ -501,6 +532,11 @@ class Debiaser(ABC):
         """
         Applies the debiaser onto given data.
 
+        Inputs may be 3-dimensional numpy arrays (loaded in memory) or, with the optional
+        ``dask`` extra installed (``pip install ibicus[dask]``), ``xarray.DataArray``
+        objects with a ``time`` dimension. dask-backed DataArrays are processed lazily and
+        in parallel over spatial chunks, so the full dataset never needs to fit in RAM.
+
         Parameters
         ----------
         obs : np.ndarray
@@ -528,6 +564,14 @@ class Debiaser(ABC):
 
         logger = get_library_logger()
         logger.info("----- Running debiasing for variable: %s -----" % self.variable)
+
+        try:
+            import xarray as xr
+
+            if isinstance(obs, xr.DataArray):
+                return self._apply_xarray(obs, cm_hist, cm_future, **kwargs)
+        except ImportError:
+            pass
 
         obs, cm_hist, cm_future = self._check_inputs_and_convert_if_possible(
             obs, cm_hist, cm_future
