@@ -498,13 +498,6 @@ class Debiaser(ABC):
             },
             kwargs=kwargs,
         )
-        # allow_rechunk=True fragments spatial chunks into per-pixel pieces; restore
-        # the input spatial chunk structure so callers get uniform chunks on write
-        if result.chunks is not None:
-            spatial_chunks = {
-                d: obs.chunksizes.get(d, obs.sizes[d]) for d in obs.dims if d != "time"
-            }
-            result = result.chunk({**spatial_chunks, "time": result.sizes["time"]})
         # apply_ufunc moves the output core dim to the last position; restore original order
         return result.transpose(*obs.dims)
 
